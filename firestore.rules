@@ -1,0 +1,135 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == "eoke560@gmail.com" ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidUserProfile(data) {
+      return data.uid is string && data.uid.size() <= 128 &&
+             data.email is string && data.email.size() <= 256 &&
+             data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    function isValidProperty(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.title is string && data.title.size() <= 256 &&
+             data.monthlyRent is number && data.monthlyRent >= 0 &&
+             data.county is string && data.county.size() <= 64 &&
+             data.propertyType is string && data.propertyType.size() <= 64 &&
+             data.discoveredAt is string && data.discoveredAt.size() <= 64;
+    }
+
+    function isValidSavedSearch(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() <= 128 &&
+             data.isActive is bool &&
+             data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    function isValidSavedProperty(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.propertyId is string && data.propertyId.size() <= 128 &&
+             data.savedAt is string && data.savedAt.size() <= 64;
+    }
+
+    function isValidNotification(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.propertyId is string && data.propertyId.size() <= 128 &&
+             data.propertyTitle is string && data.propertyTitle.size() <= 256 &&
+             data.isRead is bool &&
+             data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    function isValidMonitoringSource(data) {
+      return data.id is string && data.id.size() <= 64 &&
+             data.name is string && data.name.size() <= 128 &&
+             data.type is string && data.type.size() <= 64 &&
+             data.status is string && data.status.size() <= 64;
+    }
+
+    // Public property directory - anyone can view properties
+    match /properties/{propertyId} {
+      allow get: if isValidId(propertyId);
+      allow list: if true;
+      allow create: if (isAdmin() || isSignedIn()) && isValidId(propertyId) && isValidProperty(incoming());
+      allow update: if (isAdmin() || isSignedIn()) && isValidId(propertyId) && isValidProperty(incoming());
+      allow delete: if isAdmin() && isValidId(propertyId);
+    }
+
+    // User profiles - private to owner and admin
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isValidId(userId) && isSignedIn() && request.auth.uid == userId && isValidUserProfile(incoming());
+      allow update: if isValidId(userId) && isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidUserProfile(incoming());
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    // Saved Searches - private to creator
+    match /savedSearches/{searchId} {
+      allow get: if isValidId(searchId) && isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(searchId) && isSignedIn() && incoming().userId == request.auth.uid && isValidSavedSearch(incoming());
+      allow update: if isValidId(searchId) && isSignedIn() && existing().userId == request.auth.uid && incoming().userId == request.auth.uid && isValidSavedSearch(incoming());
+      allow delete: if isValidId(searchId) && isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Saved Properties / Favorites
+    match /savedProperties/{savedId} {
+      allow get: if isValidId(savedId) && isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(savedId) && isSignedIn() && incoming().userId == request.auth.uid && isValidSavedProperty(incoming());
+      allow delete: if isValidId(savedId) && isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow get: if isValidId(notificationId) && isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(notificationId) && isSignedIn() && (incoming().userId == request.auth.uid || isAdmin()) && isValidNotification(incoming());
+      allow update: if isValidId(notificationId) && isSignedIn() && existing().userId == request.auth.uid && incoming().userId == request.auth.uid && isValidNotification(incoming());
+      allow delete: if isValidId(notificationId) && isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Monitoring Sources
+    match /monitoringSources/{sourceId} {
+      allow get: if isValidId(sourceId);
+      allow list: if true;
+      allow create, update, delete: if isAdmin() && isValidId(sourceId);
+    }
+
+    // Admins collection
+    match /admins/{adminId} {
+      allow read, write: if isAdmin() && isValidId(adminId);
+    }
+  }
+}
